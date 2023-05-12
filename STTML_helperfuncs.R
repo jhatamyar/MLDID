@@ -32,7 +32,7 @@ did_datapreprocess <- function(data = data, Y = "tx_mi2"){
     filter(!any(G == 1996))
   
   #set those treated after the sample to zero (to act as control)
-  data$G[data$G > 2012] <- 0
+  data$G[data$G > 2008] <- 0
   #data <- data[data$period <]
   
   tlist <- unique(data$period)[order(unique(data$period))]
@@ -88,7 +88,9 @@ process_attgt <- function(attgt.list) {
   # create vectors to hold the results
   group <- c()
   att <- c()
+  att.se <- c()
   att.csa <- c()
+  att.csa.se <- c()
   tt <- c()
   i <- 1
   
@@ -98,64 +100,111 @@ process_attgt <- function(attgt.list) {
       group[i] <- attgt.list[[i]]$group
       tt[i] <- attgt.list[[i]]$year
       att[i] <- attgt.list[[i]]$TAU_hat
+      att.se[i] <- attgt.list[[i]]$std.err.est
       att.csa[i] <- attgt.list[[i]]$attgt
+      #att.csa.se[i] <- attgt.list[[i]]$attgt.se
       i <- i+1
     }
   }
   
-  list(group=group, att=att, att.csa=att.csa, tt=tt)
+  list(group=group, att=att, att.se=att.se, att.csa=att.csa, att.csa.se=att.csa.se, tt=tt)
 }
 
-### function for aggregating atts 
-### takes output of above function as input 
-aggregate_attgt <- function(data=data, attgt.res = attgt.res) {
-## indicates year of first treatment 
-  group <- attgt.res$group
-## the group-time att 
-  att <- attgt.res$att
-## the group-time att (Callaway vversion)
-  att.csa <- attgt.res$att.csa
-## indicates current year 
-  tt <- attgt.res$tt
-
-# we can work in overall probabilities because conditioning will cancel out
-# cause it shows up in numerator and denominator
-  pg <- sapply(glist, function(g) mean(data$period==g))
-
-# length of this is equal to number of groups
-  pgg <- pg
-
-# same but length is equal to the number of ATT(g,t)
-## THIS WAS THE MISSING STEP OMG
-  pg <- pg[match(group, glist)]
-
-  originalt <- tt
-  originalgroup <- group
-
-
-## get the indicators for time to event (0 is event time)
-  eseq <- unique(originalt - originalgroup)
-  eseq <- eseq[order(eseq)]
-
-# compute atts that are specific to each event time
-  dynamic.att.e <- sapply(eseq, function(e) {
-  # keep att(g,t) for the right g&t as well as ones that
-  # are not trimmed out from balancing the sample
-    whiche <- which( (originalt - originalgroup == e))
-    atte <- att[whiche]
-    pge <- pg[whiche]/(sum(pg[whiche]))
-    sum(atte*pge)
-  })
-
-# compute atts that are specific to each event time using CSA
-  dynamic.att.e.csa <- sapply(eseq, function(e) {
-  # keep att(g,t) for the right g&t as well as ones that
-  # are not trimmed out from balancing the sample
-    whiche <- which( (originalt - originalgroup == e))
-    atte <- att.csa[whiche]
-    pge <- pg[whiche]/(sum(pg[whiche]))
-    sum(atte*pge)
-  })
-  list(dynamic.att.e = dynamic.att.e, dynamic.att.e.csa = dynamic.att.e.csa,
-       originalt = originalt, originalgroup = originalgroup, pg = pg)
+### function for processing the output of the loop
+### taken from https://github.com/bcallaway11/did/blob/master/R/process_attgt.R
+process_attgt_sim <- function(attgt.list) {
+  nG <- length(unique(unlist(BMisc::getListElement(attgt.list, "group"))))
+  nT <- length(unique(unlist(BMisc::getListElement(attgt.list, "year"))))
+  
+  # create vectors to hold the results
+  group <- c()
+  att <- c()
+  tt <- c()
+  i <- 1
+  
+  # populate result vectors and matrices
+  for (f in 1:nG) {
+    for (s in 1:nT) {
+      group[i] <- attgt.list[[i]]$group
+      tt[i] <- attgt.list[[i]]$year
+      ## need to replace the pre-treatment years with zero 
+      if ((attgt.list[[i]]$year - attgt.list[[i]]$group)<= -2 ){
+        att[i] <- 0.00
+      }
+      else {
+      att[i] <- attgt.list[[i]]$TAU.or
+      }
+      #att.csa.se[i] <- attgt.list[[i]]$attgt.se
+      i <- i+1
+    }
+  }
+  
+  list(group=group, att=att, tt=tt)
 }
+
+
+
+
+
+
+### we aren't using this anymore, but it's here anyway 
+run_interacted_regression <- function(affected, data, elist) {
+  # Initialize a list to store the OLS summaries
+  #OLS_summary_list <- vector("list", nperiods + 1)
+  all_interaction_terms <- c()
+  
+  for (variable in affected) {
+    
+    
+    # Initialize an empty vector to store the interaction terms
+    interaction_terms <- c()
+    
+    # Loop through e.times and create the interaction terms, skipping the reference period (e.times = -1)
+    for (i in elist) {
+      if (i != -1) {
+        if (i < 0) {
+          interaction_term <- paste0(variable, ":e_", abs(i))
+        } else if (i >= 0) {
+          interaction_term <- paste0(variable, ":e", i)
+        }
+        interaction_terms <- c(interaction_terms, interaction_term)
+      } 
+    }
+    # Add the interaction terms for the current variable to the list of all interaction terms
+    all_interaction_terms <- c(all_interaction_terms, interaction_terms)
+    
+  }
+  
+  # Create the regression formula
+  formula_text <- paste("dynamic.cate ~", paste(all_interaction_terms, collapse = " + "), "+ X1 + X2 + X3 + X4 + X5 + e_7 + e_6 +e_5 + e_4 + e_3 + e_2 + e0 + e1 + e2 + e3 + e4 + e5 + e6 + as.factor(period)")    
+  # Run the regression
+  OLSsim <- lm(formula_text, data = data)
+  
+  return(summary(OLSsim))
+}
+
+run_interacted_regressions <- function(nperiods, data) {
+  # Initialize a list to store the OLS summaries
+  OLS_summary_list <- vector("list", nperiods + 1)
+  
+  for (i in 0:nperiods) {
+    # Create the interaction term
+    interaction_term <- paste0("X1:e", i)
+    
+    # Create the regression formula
+    formula_text <- paste("dynamic.cate ~", interaction_term, "+ X1 + e_3 + e_2 + e0 + e1 + e2")
+    
+    # Run the regression
+    OLSsim <- lm(formula_text, data = data)
+    
+    # Store the summary in the list
+    OLS_summary_list[[i + 1]] <- summary(OLSsim)
+  }
+  
+  return(OLS_summary_list)
+}
+
+
+
+  
+

@@ -7,8 +7,18 @@
 
 didMLloop <- function(dta = dta,
                       xformla = xformla) {
+  # call the pre-processing function from _helperfuncs.R 
+  ret=did_datapreprocess_sim(dta)
   
-  # place holder in lists
+  ## unpack params 
+  dta   <- ret$data
+  tlist <- ret$tlist
+  glist <- ret$glist
+  nT    <- ret$nT
+  nG    <- ret$nG
+  n     <- ret$n
+  
+  # create place holder in lists
   counter <- 1
   attgt.list <- list()
   
@@ -21,6 +31,7 @@ didMLloop <- function(dta = dta,
   
   ## Note: can add to this to store score fn once I figure out what it is
   cates <- Matrix::Matrix(data=0,nrow=n*2, ncol=(nG)*(nT), sparse=TRUE)
+  scores <- Matrix::Matrix(data=0,nrow=n*2, ncol=(nG)*(nT), sparse=TRUE)
   y.hats <- Matrix::Matrix(data=0,nrow=n*2, ncol=(nG)*(nT), sparse=TRUE)
   gammas <- Matrix::Matrix(data=0,nrow=n*2, ncol=(nG)*(nT), sparse=TRUE)
   
@@ -187,7 +198,7 @@ didMLloop <- function(dta = dta,
       result = cvx.output$getValue(gg)
       gamma = nobs * result[1:nobs]
       
-      TR_fit <- diffindiff::DiD(X = covariates,
+      TR_fit <- LNW_DiD(X = covariates,
                                 Y = Y,
                                 Ti = Ti,
                                 Si = Si,
@@ -205,6 +216,7 @@ didMLloop <- function(dta = dta,
       # save results for this att(g,t)
       attgt.list[[counter]] <- list(TAU_hat = TR_fit$TAU_hat, 
                                     attgt = attgt$ATT,
+                                    attgt.se = attgt$se,
                                     taus = TR_fit$tau_hat,
                                     std.err.est = TR_fit$std.err.est, 
                                     group=glist[g], 
@@ -215,6 +227,11 @@ didMLloop <- function(dta = dta,
       cate.temp <- rep(NA, n1)
       cate.temp[disidx] <- TR_fit$tau_hat
       cates[,counter] <- cate.temp
+      
+      ## save score.est
+      score.temp <- rep(NA, n1)
+      score.temp[disidx] <- TR_fit$score.est
+      scores[,counter] <- score.temp
       
       ## save y.est
       y.temp <- rep(NA, n1)
@@ -242,10 +259,204 @@ didMLloop <- function(dta = dta,
   
   return(list("attgt"     = attgt.list, 
               "cates"     = cates, 
+              "scores"     = scores, 
               "gammas"  = gammas,
               "positions" = positions,
-              "IDs" = IDs))
+              "IDs" = IDs,
+              "params" = list("data" = dta, 
+                              "tlist" = tlist, 
+                              "glist" = glist, 
+                              "nT" = nT, 
+                              "nG" = nG, 
+                              "n" = n)))
   
 }
+
+
+didMLloop_oracle <- function(dta = dta,
+                      xformla = xformla) {
   
+  # call the pre-processing function from _helperfuncs.R 
+  ret=did_datapreprocess_sim(dta)
+  
+  ## unpack params 
+  dta   <- ret$data
+  tlist <- ret$tlist
+  glist <- ret$glist
+  nT    <- ret$nT
+  nG    <- ret$nG
+  n     <- ret$n
+  
+  # place holder in lists
+  counter <- 1
+  attgt.or.list <- list()
+  
+  # number of time periods
+  tlist.length <- length(tlist)
+  tfac <- 0 ## corresponds to "universal" base period 
+  
+  # 3-dimensional array which will store cates
+  # across groups and times
+  
+  ## Note: can add to this to store score fn once I figure out what it is
+  cates.or <- Matrix::Matrix(data=0,nrow=n*2, ncol=(nG)*(nT), sparse=TRUE)
+  
+  ## for keeping track later 
+  IDs <- Matrix::Matrix(data=0,nrow=n*2, ncol=(nG)*(nT), sparse=TRUE)
+  positions <- Matrix::Matrix(data=0,nrow=n*2, ncol=(nG)*(nT), sparse=TRUE)
+  
+  for (g in 1:(nG)) { ## must subtract one here because there is no year at the end without TX?
+    
+    ## set up G once: will be a 1 if this is the current group
+    dta$disG <- 1*(dta$G == glist[g])
+    # loop over time periods
+    for (t in 1:tlist.length) {
+      
+      
+      # use same base period as for post-treatment periods
+      pret <- tail(which( (tlist) < glist[g]),1)
+      
+      
+      # print the details of which iteration we are on
+      
+      cat(paste("current period:", tlist[(t)]), "\n")
+      cat(paste("current group:", glist[g]), "\n")
+      cat(paste("set pretreatment period to be", tlist[pret]), "\n")
+      
+      # use "not yet treated as control"
+      dta$disC <- 1 * ((dta$G == 0) |
+                          ((dta$G > (tlist[max(t,pret)])) &
+                             (dta$G != glist[g])))
+      # check if in post-treatment period
+      if ((glist[g]<=tlist[(t)])) {
+        
+        # update pre-period if in post-treatment period to
+        # be  period (g-delta-1)
+        pret <- tail(which( (tlist) < glist[g]),1)
+        
+        # print a warning message if there are no pre-treatment period
+        if (length(pret) == 0) {
+          warning(paste0("There are no pre-treatment periods for the group first treated at ", glist[g], "\nUnits from this group are dropped"))
+          
+          # if there are not pre-treatment periods, code will
+          # jump out of this loop
+          break
+        }
+      }
+      
+      # if we are in period (g-1), normalize results to be equal to 0
+      # and break without computing anything
+      if (tlist[pret] == tlist[(t)]) {
+
+        attgt.or.list[[counter]] <- list(TAU.or = 0, 
+                                         taus.or = 0,
+                                         group=glist[g], 
+                                         year=tlist[(t)], 
+                                         post=0)
+
+        counter <- counter+1
+        next
+      }
+      
+      #-----------------------------------------------------------------------------
+      # results for the case with panel data
+      #-----------------------------------------------------------------------------
+      ###--------------------------------
+      # note we need to create Ti, Si, Y 
+      ###--------------------------------
+      
+      # post treatment dummy variable
+      post.treat <- 1*(glist[g]<=tlist[t])
+      
+      # get dataset with current period and pre-treatment period
+      # total number of units (not just included in G or C)
+      disdat <- dta[(dta$period==tlist[t] | dta$period==tlist[pret]),]
+      
+      # still total number of units (not just included in G or C)
+      n <- nrow(disdat)
+      
+      # pick up the indices for units that will be used to compute ATT(g,t)
+      disidx <- disdat$disG==1 | disdat$disC==1
+      
+      # pick up the data that will be used to compute ATT(g,t)
+      disdat <- disdat[disidx,]
+      
+      n1 <- nrow(disdat) # num obs. for computing ATT(g,t)
+      
+      # drop missing factors MAYBE DELETE
+      disdat <- droplevels(disdat)
+      
+      # give short names for data in this iteration
+      G <- disdat$disG
+      C <- disdat$disC
+      
+      Y <- disdat$Y
+      y1 <- disdat$y1
+      y0 <- disdat$y0
+
+      Si <- disdat$disG
+      ## timing indicator should be indicating if in second period 
+      disdat$disT <- as.numeric(disdat$period == tlist[t])
+      Ti <- disdat$disT
+      
+      
+      #-----------------------------------------------------------------------------
+      # code for actually computing att(g,t)
+      #-----------------------------------------------------------------------------
+      
+      att.or <- mean(y1[Ti==1 & G == 1] - y0[Ti==1 & G == 1])
+      
+      disdat$cate.or <- ifelse((disdat$disT == 1 & disdat$disG == 1), (disdat$y1 - disdat$y0), NA)
+      #disdat$cate.or <- disdat$y1 - disdat$y0
+        #y1[Ti==1 & G == 1] - y0[Ti==1 & G == 1]
+      # pick up the indices for units that will be used to compute cates
+      #discateidx <- disdat$disT==1 & disdat$disG==1
+      # pick up the data that will be used to compute cates
+      #discatedat <- disdat[discateidx,]
+      
+      #ncates <- nrow(discatedat) # num obs. for computing ATT(g,t)
+      
+      # pick up the data that will be used to compute ATT(g,t)
+      #disdat <- disdat[disidx,]
+      #cate.or <- y1 - y0
+      
+      # save results for this att(g,t)
+      attgt.or.list[[counter]] <- list(TAU.or = att.or, 
+                                       taus.or = disdat$cate.or,
+                                       group=glist[g], 
+                                       year=tlist[(t)], 
+                                       post=post.treat)
+      
+      ## save cates
+      cate.temp <- rep(NA, n1)
+      cate.temp[disidx] <- disdat$cate.or
+      cates.or[,counter] <- cate.temp
+      
+      
+      ## save positions and IDs for later 
+      positions.temp <- rep(NA, n1)
+      positions.temp[disidx] <- disdat$period
+      positions[,counter] <- positions.temp
+      
+      IDs.temp <- rep(NA, n1)
+      IDs.temp[disidx] <- disdat$id
+      IDs[,counter] <- IDs.temp
+      
+      # update counter
+      counter <- counter+1
+    } # end looping over 
+  } # end looping over g
+  
+  return(list("attgt"     = attgt.or.list, 
+              "cates"     = cates.or, 
+              "positions" = positions,
+              "IDs" = IDs,
+              "params" = list("data" = dta, 
+                              "tlist" = tlist, 
+                              "glist" = glist, 
+                              "nT" = nT, 
+                              "nG" = nG, 
+                              "n" = n)))
+  
+}
   
