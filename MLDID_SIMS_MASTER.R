@@ -58,7 +58,7 @@ data.sim <- build_sim_datasetJH(time.periods = 4, n = 6000,
                                 taumodel = 1) 
 
 #save the data (just in case as it has pscores)
-write.csv(data, file = paste("data.", header, taskId, ".csv",sep=""))
+write.csv(data.sim, file = paste("data.", header, taskId, ".csv",sep=""))
 
 #### run the main MLDID loop - this can take a long time 
 res.sim <- didMLloop(data.sim,
@@ -243,9 +243,9 @@ out.OLSsim.scores <- summary(OLSsim.scores)
 
 
 # now by event times using the function : note nperiods should be 1 less than time periods
-BLP.bye.OR <- BLP_eventtimes(data = BLP.OR, nperiods = 5, rhs_formula = affected_str)
-BLP.bye.cates <- BLP_eventtimes(data = BLP.cates, nperiods = 5, rhs_formula = affected_str)
-BLP.bye.scores <- BLP_eventtimes(data = BLP.scores, nperiods = 5, rhs_formula = affected_str)
+BLP.bye.OR <- BLP_eventtimes(data = BLP.OR, nperiods = (time.periods-1), rhs_formula = affected_str)
+BLP.bye.cates <- BLP_eventtimes(data = BLP.cates, nperiods = (time.periods-1), rhs_formula = affected_str)
+BLP.bye.scores <- BLP_eventtimes(data = BLP.scores, nperiods = (time.periods-1), rhs_formula = affected_str)
 
 ### TO DO: save and run clans and save 
 ### 
@@ -256,14 +256,14 @@ save(BLP.bye.scores, file = paste("BLP.bye.scores.", header, taskId, ".rda", sep
 #### CLANS
 
 ## first the glht version 
-CLAN.OR     <- CLAN_glhtest(BLP.OR, affected, times = 4)
-CLAN.cates  <- CLAN_glhtest(BLP.cates, affected, times = 4)
-CLAN.scores <- CLAN_glhtest(BLP.scores, affected, times = 4)
+CLAN.OR     <- CLAN_glhtest(BLP.OR, affected, times = (time.periods-2))
+CLAN.cates  <- CLAN_glhtest(BLP.cates, affected, times = (time.periods-2))
+CLAN.scores <- CLAN_glhtest(BLP.scores, affected, times = (time.periods-2))
 
 ## repeat for simple means test 
-CLAN.OR.ttest     <- CLAN_ttest(BLP.OR, affected, time.periods = 4)
-CLAN.cates.ttest  <- CLAN_ttest(BLP.cates, affected, time.periods = 4)
-CLAN.scores.ttest <- CLAN_ttest(BLP.scores, affected, time.periods = 4)
+CLAN.OR.ttest     <- CLAN_ttest(BLP.OR, affected, time.periods = (time.periods-2))
+CLAN.cates.ttest  <- CLAN_ttest(BLP.cates, affected, time.periods = (time.periods-2))
+CLAN.scores.ttest <- CLAN_ttest(BLP.scores, affected, time.periods = (time.periods-2))
 
 
 ## save both versions (we will report the glht version but just in case)
