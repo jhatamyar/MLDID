@@ -7,7 +7,7 @@
 #'
 #' @name MLDID
 #' @import Matrix
-#' @export
+#' 
 #' @slot attgt group-time ATTs
 #' @slot cates Conditional Average Treatment Efffects
 #' @slot scores double-robust scores
@@ -16,6 +16,8 @@
 #' @slot IDs Identifier of the observations
 #' @slot params Parameters used by following functions
 #' @slot processed_attgt Space for post-processed version of the estimated results
+#' 
+#' @export MLDID
 setClass("MLDID",
          slots = c(
            attgt = "list",

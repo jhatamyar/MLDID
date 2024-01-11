@@ -194,7 +194,7 @@ CLAN_glhtest <- function(data = data, affected = affected, thres = 0.2, alpha = 
       form  <- paste(affected[m],"~h+l-1", sep="")
       reg   <- lm(form, data=data.temp[(data.temp$h==1)| (data.temp$l==1),])
       coef  <- reg$coefficients['h'] - reg$coefficients['l']
-      test  <- glht(reg, linfct = c("h-l==0"))
+      test  <- multcomp::glht(reg, linfct = c("h-l==0"))
 
       coef  <- (summary(reg)$coefficients['h',1])
       pval  <- (summary(reg)$coefficients['h',4])

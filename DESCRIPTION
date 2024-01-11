@@ -18,7 +18,15 @@ Imports:
     glmnet,
     DRDID,
     dplyr,
+    tidyr,
     stats,
-    SuperLearner
+    SuperLearner,
+    CVXR,
+    did,
+    rlearner,
+    sandwich,
+    multcomp,
+    methods,
+    BMisc
 
 

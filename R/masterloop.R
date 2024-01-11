@@ -4,6 +4,9 @@
 #'
 #' @description runs the machine learning for the group-time ATTs and CATTs. See README for example usage.
 #'
+#' @import methods
+#' @import BMisc
+#'
 #' @param outcome Name of the outcome variable in the data.
 #' @param group Name of the group variable in the data, typically indicating treatment assignment.
 #' @param time Name of the time variable in the data.
@@ -350,6 +353,8 @@ MLDID <- function(outcome,
 #' @examples
 #' # Example usage:
 #' # didMLloop_oracle(dta = your_data, xformla = your_formula)
+#'
+#' @import methods
 #'
 #' @export
 didMLloop_oracle <- function(dta = dta,
