@@ -5,21 +5,42 @@
 #' 
 #' Additions Feb/March 2023: time varying X5
 #' Additions APril 2023: noise covariates 
-#' 
+#' Additions Jan 2024: package formatting, clarification
 #' ==========================================
+#' @title Build Simulation Dataset
+#' @description This function generates a simulated dataset. It creates a panel data structure 
+#' with both treated and untreated potential outcomes over specified time periods. 
+#' The function allows customization of confounding, heterogeneity, and noise factors in the data. 
+#' There are no observations which are treated in the first time period. 
+#'
+#' @param time.periods An integer specifying the number of time periods in the dataset.
+#' @param n An integer indicating the number of observations to generate.
+#' @param random Logical flag to indicate random assignment (TRUE) or confounding (FALSE) in treatment assignment.
+#' @param noise NOT IMPLEMENTED YET Logical flag to add (TRUE) or not add (FALSE) 100 extra noise covariates.TO BE FIXED
+#' @param time.dependent.covar Logical flag to include (TRUE) or exclude (FALSE) a time-dependent covariate.
+#' @param confounding An integer specifying the complexity of confounding in the model. 
+#' 1 indicates simple confounding depending on one covariate, alternative values indicate more complex confounding structures.
+#' @param het Character string indicating the type of heterogeneity in the treatment effect. 
+#' Possible values are "none" (no heterogeneity), "constant", or "calendar".
+#' @param chi An integer specifying how many covariates have a beta effect.
+#' @param taumodel An integer to choose the model for treatment effect heterogeneity.
+#' @param verbose whether to print values of various params, default is FALSE
 #' 
-
-#setwd("/Users/juliahatamyar/Documents/Research/BrazilML")
-#setwd("//userfs/jfh528/w2k/Research/BrazilML")
-
-build_sim_datasetJH <- function(time.periods = 4, n = 2500, 
+#' @return A generated dataset as an R dataframe, structured for use in MLDID.G indicates group membership, y0
+#' and y1 are the true potential outcomes, "delta.e" is time since event, and "G1"... indicate probability 
+#' of being in each group. 
+#' 
+#' 
+#' @export
+build_sim_dataset <- function(time.periods = 4, n = 2500, 
                                 random=TRUE, #change to false for confounding
                                 noise = FALSE, #change to true to add 100 extra covariates
                                 time.dependent.covar = TRUE, #adds X5
                                 confounding = 1, #change to make confounding depend on more than 1 covar
                                 het = "none", #this is heterogeneity in BETA NOT TAU
                                 chi = 1, #how many covars have beta effect
-                                taumodel = 1) {
+                                taumodel = 1,
+                                verbose = FALSE) {
   
   ## set sim parameters using the function from did package
   ### TO DO: implement a version myself, as we don't use all the outputs
@@ -54,6 +75,9 @@ build_sim_datasetJH <- function(time.periods = 4, n = 2500,
   X3 <- rbinom(n, 1, 0.5)
   X4 <- rbinom(n, 1, 0.5) ## will not be used for anything, just noise
   
+  # Initialize X5tdf as NULL
+  X5tdf <- NULL
+  
   ### generate time varying covar 
   if (time.dependent.covar) {
     # Generate a matrix of time points, with each row representing one observation
@@ -71,9 +95,7 @@ build_sim_datasetJH <- function(time.periods = 4, n = 2500,
     
     # Name the columns of the time-dependent covariate data frame
     colnames(X5tdf ) <- paste0("X5_", 1:time.periods)
-  } else { 
-    X5tdf <- NULL
-  }
+  } 
   # now add the optional 100 "noisy covaraites
   if (noise) {
     noise_continuous <- matrix(rnorm(n * 50), nrow = n) # 50 continuous noise covariates
@@ -104,14 +126,15 @@ build_sim_datasetJH <- function(time.periods = 4, n = 2500,
     te.bet.X <- 1:time.periods
   }
   
-  ## print values for my sanity
-  cat(paste("current bett:", bett, "\n"))
-  cat(paste("current betu:", betu, "\n"))
-  cat(paste("current te.e:", te.e, "\n"))
-  cat(paste("current te.bet.X:", te.bet.X, "\n"))
-  #cat(paste("current ipw:", ipw, "\n"))
-  cat(paste("current het:", het, "\n"))
-  cat(paste("current te:", te, "\n"))
+  ## print values for my sanity if verbose off 
+  if (verbose) {
+    cat(paste("current bett:", bett, "\n"))
+    cat(paste("current betu:", betu, "\n"))
+    cat(paste("current te.e:", te.e, "\n"))
+    cat(paste("current te.bet.X:", te.bet.X, "\n"))
+    cat(paste("current het:", het, "\n"))
+    cat(paste("current te:", te, "\n"))
+  }
   
   # making pr depend on covariates 
   if (random == TRUE) {
@@ -158,7 +181,9 @@ build_sim_datasetJH <- function(time.periods = 4, n = 2500,
     tau <- (X2[G>0] + X3[G>0])^2
   }
   
-  cat(paste("The value of random within the function is:", random, "\n"))
+  if (verbose) {
+    cat(paste("The value of random within the function is:", random, "\n"))
+  }
   
   Y1tdf <- sapply(1:time.periods, function(t) {
     te.t[t] + te.bet.ind[Gt]*Ct + Xt*te.bet.X[t] 
@@ -183,14 +208,15 @@ build_sim_datasetJH <- function(time.periods = 4, n = 2500,
   # X5tdf[G > 0, ], Ytdf, Y0tdf, Y1tdf, noise_covariates[G > 0, ])
   
   ## combine unobserved data
-  if (time.dependent.covar & noise) {
-    dft <- cbind.data.frame(G = Gt, X1 = X1[G > 0], X2 = X2[G > 0], X3 = X3[G > 0], X4 = X4[G > 0], X5tdf[G > 0, ], Ytdf, Y0tdf, Y1tdf, noise_covariates[G > 0, ])
-  } else if (time.dependent.covar & !noise) {
-    dft <- cbind.data.frame(G = Gt, X1 = X1[G > 0], X2 = X2[G > 0], X3 = X3[G > 0], X4 = X4[G > 0], X5tdf[G > 0, ], Ytdf, Y0tdf, Y1tdf)
-  } else if (!time.dependent.covar & noise) {
-    dft <- cbind.data.frame(G = Gt, X1 = X1[G > 0], X2 = X2[G > 0], X3 = X3[G > 0], X4 = X4[G > 0], Ytdf, Y0tdf, Y1tdf, noise_covariates[G > 0, ])
-  } else {
-    dft <- cbind.data.frame(G = Gt, X1 = X1[G > 0], X2 = X2[G > 0], X3 = X3[G > 0], X4 = X4[G > 0], Ytdf, Y0tdf, Y1tdf)
+  # Combine the data based on the conditions
+  dft <- data.frame(G = Gt, X1 = X1[G > 0], X2 = X2[G > 0], X3 = X3[G > 0], X4 = X4[G > 0], Ytdf, Y0tdf, Y1tdf)
+  
+  if (time.dependent.covar) {
+    dft <- cbind(dft, X5tdf[G > 0, ])
+  }
+  
+  if (noise) {
+    dft <- cbind(dft, noise_covariates[G > 0, ])
   }
   
   
@@ -226,10 +252,6 @@ build_sim_datasetJH <- function(time.periods = 4, n = 2500,
   y1udf <- Y0udf
   colnames(y1udf) <- Y1names
   
-  # store dataset of observed outcomes for untreated units
-  #dfu <- cbind.data.frame(G=0,X1=X1[G==0],X2=X2[G==0],X3=X3[G==0],X4=X4[G==0],X5tdf[G==0,], Y0udf, y0udf,y1udf)
-  #dfu <- cbind.data.frame(G = 0, X1 = X1[G == 0], X2 = X2[G == 0], X3 = X3[G == 0], X4 = X4[G == 0], 
-  # X5tdf[G == 0, ], Y0udf, y0udf, y1udf, noise_covariates[G == 0, ])
   
   if (time.dependent.covar & noise) {
     dfu <- cbind.data.frame(G = 0, X1 = X1[G == 0], X2 = X2[G == 0], X3 = X3[G == 0], X4 = X4[G == 0], X5tdf[G == 0, ], Y0udf, y0udf, y1udf, noise_covariates[G == 0, ])

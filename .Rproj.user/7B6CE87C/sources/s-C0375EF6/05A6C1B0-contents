@@ -1,0 +1,252 @@
+### This code runs and outputs the various functions in the MLDID package
+
+## CHANGE THIS TO REQUIRED DIR
+setwd("~/Documents/Research/MLDID_packagework")
+
+#load required libraries
+rm(list=ls(all=TRUE))
+vec.pac= c("magrittr", "matrixStats", "Matrix", "BMisc", "grf", "did",
+           "DRDID", "dplyr", "doParallel", "scales", "multcomp")
+
+#install packages if not already installed 
+list.of.packages <- vec.pac
+new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
+if(length(new.packages)) install.packages(new.packages)
+
+lapply(vec.pac, require, character.only = TRUE)
+
+#load functions 
+source("STTML_helperfuncs.R")         ## pre and post processing 
+source("STTML_ATTestimator.R")        ## the Lu, Nie, Wager estimator
+source("STTML_aggregation.R")         ## Aggregation of group-times and CATEs/scores
+source("STTML_heterogeneityfuncs.R")  ## Post-estimation (BLP, CLAN)
+source("STTML_loop.R")                ## the main loop for Callaway Sant'Anna algorithm
+source("generatesimdata.R")           ## data generating function 
+
+set.seed(222) 
+
+data.sim <- build_sim_dataset(time.periods = 4, n = 5000, 
+                                random=TRUE, #change to false for confounding
+                                noise = FALSE, #change to true to add 100 extra covariates
+                                time.dependent.covar = FALSE, #adds X5
+                                confounding = 1, #change to make confounding depend on more than 1 covar
+                                het = "none", #this is heterogeneity in BETA NOT TAU
+                                chi = 1, #how many covars have beta effect
+                                taumodel = 1,
+                                verbose = TRUE) 
+att_gt <- MLDID(outcome = 'Y',
+                group = 'G',
+                time = 'period',
+                id_name = 'id',
+                data.sim,
+                xformla = ~X1 + X2 + X3 + X4,
+                tune_penalty = F,
+                #nu_model = "cf",
+                #sigma_model = "cf",
+                #delta_model = "SL",
+                t_func = T) ## this works, hmm 
+
+#### the main loop to get oracles 
+data.or <- data.sim
+res.sim.or <- didMLloop_oracle(data.or,
+                               xformla = ~X1 + X2 + X3 + X4)
+
+# process results
+attgt.results.sim <- process_attgt(att_gt)
+attgt.list.or.sim <- process_attgt(res.sim.or)
+## extra step for the oracle version 
+attgt.results.or.sim <- process_attgt_sim(attgt.list.or.sim)
+
+## check comparison of oracle to estimated
+attgt.results.or.sim$att
+attgt.results.sim@processed_attgt[["att"]]
+
+### now aggregate these to the dynamic (time-to-event) version
+
+ATT.dynamic.MLDID <- dynamic_attgt(att_gt)
+ATT.dynamic.OR    <- aggregate_attgt_or(data.or, attgt.results.or.sim)
+
+## check comparison of oracle to estimated 
+ATT.dynamic.OR$att.e
+ATT.dynamic.MLDID$dynamic.att.e
+
+## aggregate the cates and scores  
+cates.dynamic.OR <- dynamic_cates(res.sim.or, type = "cates", oracle = T)
+cates.dynamic.MLDID <- dynamic_cates(att_gt, type = "cates")
+scores.dynamic.MLDID <- dynamic_cates(att_gt, type = "scores")
+
+### now prepare the data for analysis (merge with original covariates) - note this is slow
+het.data.OR    <- het_prep(res.sim.or, cates.dynamic.OR)
+het.data.cates <- het_prep(att_gt, cates.dynamic.MLDID)
+het.data.scores <- het_prep(att_gt, scores.dynamic.MLDID)
+
+## create a list of variables to test, must be string
+affected <- c("X1", "X2", "X3", "X4")
+affected_str <- paste(affected, collapse = " + ")
+
+## Run the BLP regressions for each event-time 
+BLP.bye.OR <- BLP_eventtimes(data = het.data.OR, nperiods = 2, rhs_formula = affected_str)
+BLP.bye.cates <- BLP_eventtimes(data = het.data.cates, nperiods = 2, rhs_formula = affected_str)
+BLP.bye.scores <- BLP_eventtimes(data = het.data.scores, nperiods = 2, rhs_formula = affected_str)
+
+## now do the CLANs both ways 
+CLAN.glh.OR <- CLAN_glhtest(data= het.data.OR, affected=affected)
+CLAN.glh.cates.MLDID <- CLAN_glhtest(het.data.cates, affected=affected)
+CLAN.glh.scores.MLDID <- CLAN_glhtest(het.data.scores, affected)
+
+
+CLAN.ttest.OR <- CLAN_ttest(data= het.data.OR, affected=affected)
+CLAN.ttest.cates.MLDID <- CLAN_ttest(het.data.cates, affected=affected)
+CLAN.ttest.scores.MLDID <- CLAN_ttest(het.data.scores, affected)
+
+
+BLPsummary(BLP.bye.OR, affected)
+BLPsummary(BLP.bye.cates, affected)
+BLPsummary(BLP.bye.scores, affected)
+
+plot <- plotBLP(BLP.bye.OR, affected)
+plot.cates <- plotBLP(BLP.bye.cates, affected)
+
+
+## last attempt 
+library(foreign)
+wage.dta <- read.dta("/Users/juliahatamyar/Downloads/WAGEPAN.DTA")
+
+wage.dta$union_year <- ifelse(wage.dta$union==1, wage.dta$year, 0)
+wage.dta$union_year <- ifelse(is.na(wage.dta$union_year), 0, wage.dta$union_year)
+
+wage.dta <- wage.dta[complete.cases(wage.dta), ]
+
+## drop those in the first year (need a pre-treatment period)
+wage.dta <- wage.dta[wage.dta$union_year!=1980, ]
+
+## drop those in the first year (need a pre-treatment period)
+
+att_gt.wage <- MLDID(outcome = 'lwage',
+                   group = 'union_year',
+                   time = 'year',
+                   id_name = 'nr',
+                   wage.dta,
+                   xformla = ~black + educ + south,
+                   tune_penalty = F,
+                   #nu_model = "cf",
+                   #sigma_model = "cf",
+                   #delta_model = "SL",
+                   t_func = T,
+                   use_drdid = T) ## this works, hmm 
+
+data <- mpdta
+
+data$noise <- rnorm(nrow(mpdta))
+
+att_gt.mp <- MLDID(outcome = 'lemp',
+                group = 'first.treat',
+                time = 'year',
+                id_name = 'countyreal',
+                data,
+                xformla = ~lpop + noise,
+                tune_penalty = F,
+                #nu_model = "cf",
+                #sigma_model = "cf",
+                #delta_model = "SL",
+                ) ## this works, hmm 
+
+ATT.dynamic.MP <- dynamic_attgt(att_gt.mp)
+
+cates.dynamic.MP <- dynamic_cates(att_gt.mp, type = "cates")
+het.data.MP <- het_prep(att_gt.mp, cates.dynamic.MP)
+
+## create a list of variables to test, must be string
+affected.mp <- c("lpop", "noise")
+affected_str.mp <- paste(affected.mp, collapse = " + ")
+
+BLP.bye.MP <- BLP_eventtimes(data = het.data.MP, nperiods = 3, rhs_formula = affected_str.mp)
+
+plotBLP(BLP.bye.MP, affected.mp)
+
+
+## trying evictions data lol 
+
+Edata <- read.csv("/Users/juliahatamyar/Documents/Research/Evictions/Evictions_int_updatedcensus_cleaned.csv")
+Edata$cases.asinh <- asinh(Edata$inew_cases)
+Edata$deaths.asinh <- asinh(Edata$inew_deaths)
+
+Edata <- Edata[Edata$weekno < 37,]
+Edata <- Edata[Edata$weekno > 20,]
+Edata <- Edata[Edata$endweek < 30,]
+Edata
+att_gt.evict <- MLDID(outcome = 'cases.asinh',
+                    group = 'endweek',
+                    time = 'weekno',
+                    id_name = 'fips',
+                    Edata,
+                    xformla = ~stringencyindex + logpop,
+                    tune_penalty = F,
+                    #nu_model = "cf",
+                    #sigma_model = "cf",
+                    #delta_model = "SL",
+                    t_func = T) ## this works, hmm 
+
+
+
+
+library('sampleSelection')
+data(nlswork)
+
+nlswork <- nlswork[nlswork$year <=78, ]
+nlswork <- nlswork[nlswork$year > 71, ]
+
+nlswork$union_year <- ifelse(nlswork$union==1, nlswork$year, 0)
+nlswork$union_year <- ifelse(is.na(nlswork$union_year), 0, nlswork$union_year)
+
+nlswork <- nlswork[complete.cases(nlswork), ]
+
+## drop those in the first year (need a pre-treatment period)
+nlswork <- nlswork[nlswork$union_year!=72, ]
+
+# Assuming your dataframe is named 'df' and has columns 'idcode' and 'year'
+
+# Find the full range of years in the data
+all_years <- unique(nlswork$year)
+
+# Create a function to check if all years are present for each idcode
+all_years_present <- function(id) {
+  id_years <- unique(nlswork[nlswork$idcode == id, "year"])
+  all(all_years %in% id_years)
+}
+
+# Apply this function to each idcode and keep only those ids that have all years
+complete_ids <- sapply(unique(nlswork$idcode), all_years_present)
+sum(complete_ids)
+
+# Subset the dataframe to only include rows with those complete ids
+balanced_panel_df <- nlswork[complete_ids,]
+
+# Now, 'balanced_panel_df' is your balanced panel
+
+
+att_gt.nls <- MLDID(outcome = 'ln_wage',
+                   group = 'union_year',
+                   time = 'year',
+                   id_name = 'idcode',
+                   balanced_panel_df,
+                   xformla = ~age + nev_mar + collgrad + south,
+                   tune_penalty = F,
+                   #nu_model = "cf",
+                   #sigma_model = "cf",
+                   #delta_model = "SL",
+                   t_func = F) ## this works, hmm 
+
+## compare to vanilla callaway santanna, from the did R package
+benchmark.nls <- att_gt(yname = "ln_wage",
+                        gname = "union_year",
+                        idname = "idcode",
+                        tname = "year",
+                        xformla = ~age + nev_mar + collgrad + south,
+                        data = balanced_panel_df,
+                        #allow_unbalanced_panel=TRUE,
+                        control_group = "notyettreated",
+                        base_period = "universal",
+                        est_method = "dr"
+)
+
