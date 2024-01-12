@@ -24,7 +24,6 @@ did_datapreprocess <- function(outcome,
                                id_name,
                                data){
 
-  source("MLDID_class.R") ## sets the class for later
 
   ## rename variables
   names(data)[names(data) == group] <- 'G'
