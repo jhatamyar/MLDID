@@ -104,6 +104,17 @@ plotBLP(BLP.bye.MP, affected.mp)
 ![packagedemo](https://github.com/jhatamyar/MLDID/assets/31328293/8e012ac9-7dbf-4da9-9d2d-369988d93423)
 
 
+## Troubleshooting
+
+If you experience issues with this package:
+	- Ensure that there are no missing values (NA)
+	- Ensure that you are using at least two covariates in the model formula, as the ML methods may require two dimensions
+	- Check for small number of observations - if very few per group-time, methods may not converge
+	- Ensure that you are using a balanced panel (work is ongoing to allow for unbalanced panels to be used)
+	- Check whether setting t_func = F resolves the issue
+	- Please create a github "issue" if problems persist!
+
+
 ### References
 Callaway, B. and P. H. Sant’Anna (2021). *Difference-in-differences with multiple time periods*. In: Journal of Econometrics 225.2, pp. 200–230.
 
