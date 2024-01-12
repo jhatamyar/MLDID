@@ -47,12 +47,12 @@ The `att_gt.mp` object holds the estimated ATT and CATT for each group-time, as 
 
 ### Aggregating the estimates to Dynamic (time-to-event) time
 
-The functions `dynamic_att()` and `dynamic_cates()` perform the aggregation steps in Equation 20 and 21 of the paper. The `dynamic_cates()` function can also aggregate the estimated robust scores as in Callaway & Sant'Anna (2021).
+The functions `dynamic_att()` and `dynamic_cates()` perform the aggregation steps in Equation 20 and 21 of the paper. The `dynamic_cates()` function can also aggregate the estimated robust scores.
 
 ```R
 ## aggregate the ATTs
 ATT.dynamic.MP <- dynamic_attgt(att_gt.mp)
-## print the dynamic estimates and the DRDID (Callaway & Sant'Anna) version
+## print the dynamic estimates and the DRDID as in Callaway & Sant'Anna (2021) version
 ATT.dynamic.MP[["dynamic.att.e"]]
 ATT.dynamic.MP[["dynamic.att.e.csa"]]
 
