@@ -37,7 +37,7 @@ att_gt.mp <- MLDID(outcome = 'lemp',
                 id_name = 'countyreal',
                 data,
                 xformla = ~lpop + noise,
-                tune_penalty = F,
+                tune_penalty = F
                 #nu_model = "cf",
                 #sigma_model = "cf",
                 #delta_model = "SL",
